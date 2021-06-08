@@ -1,0 +1,296 @@
+#cache:
+#  paths:
+#    - node_modules/
+#    - .yarn
+
+variables:
+  GIT_CLEAN_FLAGS: -x -f -e node_modules/** -e .yarn/**
+stages:
+  - build
+  - test
+  - docker build
+  - deploy
+
+.build-template:
+  image: node:12
+  stage: build
+  script:
+    - echo "Buillding environment $CI_ENVIRONMENT_NAME ..."
+    - yarn config set cache-folder .yarn
+    - yarn install --pure-lockfile --cache-folder .yarn
+    - >
+      if [ "$CI_ENVIRONMENT_NAME" == "dev" ]; then
+        cp -f $ENV_DEV src/panorama-config.js
+      elif [ "$CI_ENVIRONMENT_NAME" == "test" ]; then
+        cp -f $ENV_TEST src/panorama-config.js
+      elif [ "$CI_ENVIRONMENT_NAME" == "beta" ]; then
+        cp -f $ENV_BETA src/panorama-config.js
+      else
+        cp -f $ENV_PROD src/panorama-config.js
+      fi
+    - yarn build:prod
+  artifacts:
+    paths:
+      - ./build
+    expire_in: 3 days
+
+1 dev build:
+  extends: .build-template
+  environment:
+    name: dev
+  rules:
+    - if: '$CI_COMMIT_REF_SLUG == "master"'
+      when: on_success
+      allow_failure: false
+    - if: $CI_MERGE_REQUEST_IID
+      when: on_success
+      allow_failure: false
+    - if: '$CI_COMMIT_REF_SLUG == "test"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_COMMIT_REF_SLUG == "beta"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_COMMIT_REF_SLUG =~ /^release-.*$/'
+      when: manual
+      allow_failure: true
+
+2 test build:
+  extends: .build-template
+  environment:
+    name: test
+  rules:
+    - if: '$CI_COMMIT_REF_SLUG == "master"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_COMMIT_REF_SLUG == "test"'
+      when: on_success
+      allow_failure: false
+    - if: '$CI_COMMIT_REF_SLUG == "beta"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_COMMIT_REF_SLUG =~ /^release-.*$/'
+      when: manual
+      allow_failure: true
+
+3 beta build:
+  extends: .build-template
+  environment:
+    name: beta
+  rules:
+    - if: '$CI_COMMIT_REF_SLUG == "master"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_COMMIT_REF_SLUG == "test"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_COMMIT_REF_SLUG == "beta"'
+      when: on_success
+      allow_failure: false
+    - if: '$CI_COMMIT_REF_SLUG =~ /^release-.*$/'
+      when: manual
+      allow_failure: true
+
+4 prod build:
+  extends: .build-template
+  environment:
+    name: prod
+  rules:
+    - if: '$CI_COMMIT_REF_SLUG == "master"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_COMMIT_REF_SLUG == "test"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_COMMIT_REF_SLUG == "beta"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_COMMIT_REF_SLUG =~ /^release-.*$/'
+      when: on_success
+      allow_failure: false
+
+#no test now, will add test script to package.json
+.test:
+  image: node:12
+  stage: test
+  script:
+    - echo "Running react test suite......"
+    - yarn test
+  only:
+    - test
+    - merge_requests
+    - master
+    - /^release-.*$/
+
+.docker-build-with-deploy:
+  stage: docker build
+  image: git.panoramabi.com:5050/registry/docker:panorama-19.03.13
+  services:
+    - name: docker:19.03.13-dind
+  script:
+    - echo "Building docker image for environment $CI_ENVIRONMENT_NAME and pushing to aws ecr ..."
+    - source $DOCKER_BUILD_WITH_AWS_ECR_PUSH
+
+1 dev docker build with deploy:
+  extends: .docker-build-with-deploy
+  rules:
+    - if: '$CI_COMMIT_REF_SLUG == "master"'
+      when: on_success
+      allow_failure: false
+    - if: '$CI_COMMIT_REF_SLUG == "test"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_COMMIT_REF_SLUG == "beta"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_COMMIT_REF_SLUG =~ /^release-.*$/'
+      when: manual
+      allow_failure: true
+  environment:
+    name: dev
+
+2 test docker build with deploy:
+  extends: .docker-build-with-deploy
+  rules:
+    - if: '$CI_COMMIT_REF_SLUG == "master"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_COMMIT_REF_SLUG == "test"'
+      when: on_success
+      allow_failure: false
+    - if: '$CI_COMMIT_REF_SLUG == "beta"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_COMMIT_REF_SLUG =~ /^release-.*$/'
+      when: manual
+      allow_failure: true
+  environment:
+    name: test
+
+
+3 beta docker build with deploy:
+  extends: .docker-build-with-deploy
+  rules:
+    - if: '$CI_COMMIT_REF_SLUG == "master"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_COMMIT_REF_SLUG == "test"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_COMMIT_REF_SLUG == "beta"'
+      when: on_success
+      allow_failure: false
+    - if: '$CI_COMMIT_REF_SLUG =~ /^release-.*$/'
+      when: manual
+      allow_failure: true
+  environment:
+    name: beta
+
+4 prod docker build with deploy:
+  extends: .docker-build-with-deploy
+  when: manual
+  environment:
+    name: prod
+  only:
+    - master
+    - test
+    - beta
+    - /^release-.*$/
+
+.deploy_to_ecs:
+  image: 'registry.gitlab.com/gitlab-org/cloud-deploy/aws-ecs:latest'
+  dependencies: []
+  script:
+    - echo "Pushing $CI_ENVIRONMENT_NAME to aws ecs fargate ..."
+    - ecs update-task-definition
+
+.deploy:
+  variables:
+    CI_AWS_ECS_CLUSTER: $CI_AWS_ECS_CLUSTER_DEV_NG
+    CI_AWS_ECS_TASK_DEFINITION_FILE: ./task_definition.json
+  stage: deploy
+  extends: .deploy_to_ecs
+
+1 dev deloyment:
+  extends: .deploy
+  rules:
+    - if: '$CI_COMMIT_REF_SLUG == "master"'
+      when: on_success
+      allow_failure: false
+    - if: '$CI_COMMIT_REF_SLUG == "test"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_COMMIT_REF_SLUG == "beta"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_COMMIT_REF_SLUG =~ /^release-.*$/'
+      when: manual
+      allow_failure: true
+  before_script:
+    - cp -f $CI_AWS_ECS_TASK_DEFINITION_FILE_DEV ./task_definition.json
+  environment:
+    name: dev
+    url: https://dev.panoramabi.com
+
+.2 test deloyment:
+  extends: .deploy
+  variables:
+    CI_AWS_ECS_CLUSTER: $CI_AWS_ECS_CLUSTER_TEST_NG
+  rules:
+    - if: '$CI_COMMIT_REF_SLUG == "master"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_COMMIT_REF_SLUG == "test"'
+      when: on_success
+      allow_failure: false
+    - if: '$CI_COMMIT_REF_SLUG == "beta"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_COMMIT_REF_SLUG =~ /^release-.*$/'
+      when: manual
+      allow_failure: true
+  before_script:
+    - cp -f $CI_AWS_ECS_TASK_DEFINITION_FILE_TEST ./task_definition.json
+  environment:
+    name: test
+    url: https://test.panoramabi.com
+
+.3 beta deploy:
+  extends: .deploy
+  variables:
+    CI_AWS_ECS_CLUSTER: $CI_AWS_ECS_CLUSTER_BETA_NG
+  rules:
+    - if: '$CI_COMMIT_REF_SLUG == "master"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_COMMIT_REF_SLUG == "test"'
+      when: manual
+      allow_failure: true
+    - if: '$CI_COMMIT_REF_SLUG == "beta"'
+      when: on_success
+      allow_failure: false
+    - if: '$CI_COMMIT_REF_SLUG =~ /^release-.*$/'
+      when: manual
+      allow_failure: true
+  before_script:
+    - cp -f $CI_AWS_ECS_TASK_DEFINITION_FILE_BETA ./task_definition.json
+  environment:
+    name: beta
+    url: https://beta.panoramabi.com
+
+
+.4 prod deploy:
+  variables:
+    CI_AWS_ECS_CLUSTER: $CI_AWS_ECS_CLUSTER_PROD_NG
+  when: manual
+  extends: .deploy
+  before_script:
+    - cp -f $CI_AWS_ECS_TASK_DEFINITION_FILE_PROD ./task_definition.json
+  environment:
+    name: prod
+    url: https://prod.panoramabi.com
+  only:
+    - master
+    - test
+    - beta
+    - /^release-.*$/

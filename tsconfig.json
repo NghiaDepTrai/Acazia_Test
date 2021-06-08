@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "baseUrl": "./src",
+    "sourceMap": true,
+    "noImplicitAny": false,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "removeComments": true,
+    "module": "esnext",
+    "target": "es6",
+    "jsx": "react",
+    "lib": ["es6", "dom"],
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "moduleResolution": "Node"
+  },
+  "include": ["./src/**/*"],
+  "exclude": ["./node_modules"]
+}

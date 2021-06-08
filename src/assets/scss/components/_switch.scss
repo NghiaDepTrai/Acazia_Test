@@ -1,0 +1,34 @@
+.wrap-switch {
+  display: flex;
+  margin-bottom: 15px;
+  .import-text {
+    text-align: left;
+    padding-left: 15px;
+  }
+  .ant-switch {
+    width: 30px;
+    height: 18px;
+    background: #C3CCE4;
+    min-width: initial;
+    &::after {
+      width: 13px;
+      height: 13px;
+      background: $blue;
+    }
+    &.ant-switch-checked {
+      background: $blue;
+
+      &::after {
+        width: 13px;
+        height: 13px;
+        background: white;
+      }
+      .ant-switch-handle {
+        left: calc(100% - 18px);
+      }
+    }
+    .ant-switch-handle {
+      top: 0;
+    }
+  }
+}
