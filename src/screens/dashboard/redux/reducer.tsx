@@ -6,6 +6,6 @@ export default handleActions<any>(
     [setListFavoriteAction.toString()]: (state, action) => ({ ...state, listFavorite: action.payload }),
   },
   {
-    listFavorite: JSON.parse(localStorage.getItem("listFavorite")) || [],
+    listFavorite: [],
   }
 );

@@ -1,12 +1,11 @@
 import _ from "lodash";
 import "./styles.scss";
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import axios from "axios";
 import { offLoadingAction, onLoadingAction } from "../../containers/redux/action";
-import { setListFavoriteAction } from "./redux/action";
 import ButtomComponent from "./layout/buttom-component";
-import TinderCard from "react-tinder-card";
+import CardComponent from "./layout/card";
 interface IState {
   detailPerson: {
     username: string;
@@ -45,7 +44,6 @@ export default function DashboardComponent(props) {
     listFavorite: state.screens.listFavorite,
     onLoadingAction: () => dispatch(onLoadingAction()),
     offLoadingAction: () => dispatch(offLoadingAction()),
-    setListFavoriteAction: (payload) => dispatch(setListFavoriteAction(payload)),
   }));
   const getDetailPerson = async (type) => {
     try {
@@ -58,10 +56,9 @@ export default function DashboardComponent(props) {
         typeSelected: "Phone",
       }));
       if (type === "right") {
-        const listFavoriteUser = props.listFavorite;
+        const listFavoriteUser = JSON.parse(localStorage.getItem("listFavorite")) || [];
         if (!listFavoriteUser.find((x) => x.email === detail.email)) {
           listFavoriteUser.push(detail);
-          props.setListFavoriteAction(listFavoriteUser);
           localStorage.setItem("listFavorite", JSON.stringify(listFavoriteUser));
         }
       }
@@ -70,6 +67,18 @@ export default function DashboardComponent(props) {
       props.offLoadingAction();
     }
   };
+  const swiper = useCallback(
+    (number) => {
+      if (number === "1") {
+        getDetailPerson("");
+      }
+      if (number === "3") {
+        getDetailPerson("right");
+      }
+    },
+    [state.detailPerson]
+  );
+
   const changeTypeSelected = useCallback(
     (type) => {
       setState((state) => ({
@@ -79,55 +88,10 @@ export default function DashboardComponent(props) {
     },
     [state.typeSelected]
   );
-  const handleChangeText = (typeSelected) => {
-    return `My ${typeSelected} is `;
-  };
-  const onSwipe = (direction) => {
-    getDetailPerson(direction);
-  };
-  const { picture, username, location, phone, email, dob } = state.detailPerson;
-  const db = [state.detailPerson];
-  const childRefs = useMemo(
-    () =>
-      Array(db.length)
-        .fill(0)
-        .map(() => React.createRef()),
-    []
-  );
-  const text = useMemo(() => handleChangeText(state.typeSelected), [state.typeSelected, state.detailPerson]);
-  const infor = useMemo(() => {
-    switch (state.typeSelected) {
-      case "Phone":
-        return phone;
-      case "Address":
-        return _.startCase(location.street);
-      case "Email":
-        return email;
-      case "Birthday":
-        return dob;
-    }
-  }, [state.typeSelected, state.detailPerson]);
   return (
     <div className="container">
       <div>
-        {db.map((character, index) => (
-          <TinderCard
-            preventSwipe={["right", "left"]}
-            ref={childRefs[index]}
-            key={character.username}
-            onSwipe={(dir) => onSwipe(dir)}
-          >
-            <div className="person">
-              <div className="person-photo">
-                <img className="img" src={`${picture}`} alt={username} />
-              </div>
-              <div className="person-description">
-                <p className="person-name-age">{text}</p>
-                <p className="person-info">{infor}</p>
-              </div>
-            </div>
-          </TinderCard>
-        ))}
+        <CardComponent swiper={swiper} typeSelected={state.typeSelected} detailPerson={state.detailPerson} />
         <div className="buttom">
           <ButtomComponent changeTypeSelected={changeTypeSelected} typeSelected={state.typeSelected} />
         </div>
